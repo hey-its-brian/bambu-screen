@@ -4,25 +4,16 @@
 #include <Arduino.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
-#include <XPT2046_Touchscreen.h>
 #include <lvgl.h>
 
-// The XPT2046 sits on its own SPI bus, separate from the display.
-#define XPT2046_IRQ  36
-#define XPT2046_MOSI 32
-#define XPT2046_MISO 39
-#define XPT2046_CLK  25
-#define XPT2046_CS   33
-
-static const int SCREEN_W = 320;
-static const int SCREEN_H = 240;
+static const int SCREEN_W = 480;
+static const int SCREEN_H = 320;
 
 static TFT_eSPI tft;
-static SPIClass touchSpi(VSPI);
-static XPT2046_Touchscreen touch(XPT2046_CS, XPT2046_IRQ);
 
+// Heap-allocated: 480*40 pixels is too large for the static DRAM segment.
 static lv_disp_draw_buf_t drawBuf;
-static lv_color_t buf1[SCREEN_W * 40];
+static const size_t DRAW_BUF_PIXELS = SCREEN_W * 40;
 
 static void flushCb(lv_disp_drv_t* disp, const lv_area_t* area, lv_color_t* pixels) {
   uint32_t w = area->x2 - area->x1 + 1;
@@ -34,30 +25,34 @@ static void flushCb(lv_disp_drv_t* disp, const lv_area_t* area, lv_color_t* pixe
   lv_disp_flush_ready(disp);
 }
 
+// XPT2046 on the shared display bus (TOUCH_CS), read via TFT_eSPI so the two
+// chips never fight over the bus. Calibration comes from calibrateTouch
+// (see the diag build).
 static void touchReadCb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
-  if (!touch.touched()) {
+  uint16_t x = 0, y = 0;
+  if (tft.getTouch(&x, &y, TOUCH_Z_THRESHOLD)) {
+    data->point.x = constrain((int)x, 0, SCREEN_W - 1);
+    data->point.y = constrain((int)y, 0, SCREEN_H - 1);
+    data->state = LV_INDEV_STATE_PRESSED;
+  } else {
     data->state = LV_INDEV_STATE_RELEASED;
-    return;
   }
-  TS_Point p = touch.getPoint();
-  int x = map(p.x, TOUCH_X_MIN, TOUCH_X_MAX, 0, SCREEN_W);
-  int y = map(p.y, TOUCH_Y_MIN, TOUCH_Y_MAX, 0, SCREEN_H);
-  data->point.x = constrain(x, 0, SCREEN_W - 1);
-  data->point.y = constrain(y, 0, SCREEN_H - 1);
-  data->state = LV_INDEV_STATE_PRESSED;
 }
 
 void displaySetup() {
   tft.init();
   tft.setRotation(1);  // landscape, USB on the right
   tft.fillScreen(TFT_BLACK);
-
-  touchSpi.begin(XPT2046_CLK, XPT2046_MISO, XPT2046_MOSI, XPT2046_CS);
-  touch.begin(touchSpi);
-  touch.setRotation(1);
+  uint16_t calData[5] = TOUCH_CAL_DATA;
+  tft.setTouch(calData);
 
   lv_init();
-  lv_disp_draw_buf_init(&drawBuf, buf1, nullptr, SCREEN_W * 40);
+  lv_color_t* buf1 = (lv_color_t*)malloc(DRAW_BUF_PIXELS * sizeof(lv_color_t));
+  if (!buf1) {
+    Serial.println("[display] FATAL: draw buffer allocation failed");
+    while (true) delay(1000);
+  }
+  lv_disp_draw_buf_init(&drawBuf, buf1, nullptr, DRAW_BUF_PIXELS);
 
   static lv_disp_drv_t dispDrv;
   lv_disp_drv_init(&dispDrv);

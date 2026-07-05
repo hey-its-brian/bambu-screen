@@ -22,10 +22,14 @@ static uint32_t lastConnectAttempt = 0;
 static uint32_t sequenceId = 100;
 
 static void publishJson(JsonDocument& doc) {
-  if (!mqtt.connected()) return;
+  if (!mqtt.connected()) {
+    Serial.println("[bambu] publish skipped: not connected");
+    return;
+  }
   char buf[512];
   size_t n = serializeJson(doc, buf, sizeof(buf));
-  mqtt.publish(topicRequest, (const uint8_t*)buf, n);
+  bool ok = mqtt.publish(topicRequest, (const uint8_t*)buf, n);
+  Serial.printf("[bambu] publish %s: %s\n", ok ? "ok" : "FAILED", buf);
 }
 
 static void requestPushAll() {
@@ -129,6 +133,8 @@ static void onMqttMessage(char* topic, byte* payload, unsigned int length) {
 
   JsonArray lights = print["lights_report"];
   for (JsonObject light : lights) {
+    Serial.printf("[bambu] light node=%s mode=%s\n",
+                  light["node"] | "?", light["mode"] | "?");
     if (strcmp(light["node"] | "", "chamber_light") == 0) {
       s.chamberLight = strcmp(light["mode"] | "off", "on") == 0;
     }

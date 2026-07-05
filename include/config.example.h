@@ -14,9 +14,9 @@
 // LAN access code: printer screen -> Settings -> WLAN -> Access Code.
 #define PRINTER_ACCESS_CODE "12345678"
 
-// ---- Touch calibration (raw XPT2046 range -> screen) ----
-// If touches land offset from where you press, tweak these.
-#define TOUCH_X_MIN 200
-#define TOUCH_X_MAX 3700
-#define TOUCH_Y_MIN 240
-#define TOUCH_Y_MAX 3800
+// ---- Touch calibration ----
+// Values from TFT_eSPI's calibrateTouch (the diag build runs it: pio run
+// -e diag -t upload, tap the corner arrows, use the reported numbers).
+#define TOUCH_CAL_DATA {297, 3492, 509, 3132, 7}
+// Press pressure threshold; idle noise reads z < 25.
+#define TOUCH_Z_THRESHOLD 200

@@ -37,6 +37,7 @@ static bool isPrinting() { return isState("RUNNING") || isState("PREPARE") || is
 // ---- button actions ----
 
 static void onPauseClicked(lv_event_t*) {
+  Serial.println("[ui] pause/resume tapped");
   if (isState("PAUSE")) bambuResume();
   else if (isPrinting()) bambuPause();
 }
@@ -48,6 +49,7 @@ static void onStopConfirm(lv_event_t* e) {
 }
 
 static void onStopClicked(lv_event_t*) {
+  Serial.println("[ui] stop tapped");
   if (!isPrinting() && !isState("PAUSE")) return;
   static const char* btns[] = {"Stop", "Cancel", ""};
   lv_obj_t* mbox = lv_msgbox_create(nullptr, "Stop print?", "This cancels the current job.", btns, false);
@@ -58,6 +60,7 @@ static void onStopClicked(lv_event_t*) {
 }
 
 static void onLightClicked(lv_event_t*) {
+  Serial.println("[ui] light tapped");
   bambuSetLight(!printerState.chamberLight);
   // Optimistic: the next report confirms the real state.
   printerState.chamberLight = !printerState.chamberLight;
@@ -65,6 +68,7 @@ static void onLightClicked(lv_event_t*) {
 }
 
 static void onSpeedClicked(lv_event_t*) {
+  Serial.println("[ui] speed tapped");
   int next = printerState.speedLevel % 4 + 1;
   bambuSetSpeed(next);
   printerState.speedLevel = next;
@@ -76,7 +80,7 @@ static void onSpeedClicked(lv_event_t*) {
 static lv_obj_t* makeButton(lv_obj_t* parent, const char* text, lv_event_cb_t cb,
                             lv_color_t bg, lv_obj_t** labelOut = nullptr) {
   lv_obj_t* btn = lv_btn_create(parent);
-  lv_obj_set_size(btn, 72, 44);
+  lv_obj_set_size(btn, 104, 60);
   lv_obj_set_style_bg_color(btn, bg, 0);
   lv_obj_set_style_radius(btn, 8, 0);
   lv_obj_add_event_cb(btn, cb, LV_EVENT_CLICKED, nullptr);
@@ -95,67 +99,67 @@ void uiSetup() {
 
   // Header: connection/printer state + wifi
   statusLabel = lv_label_create(scr);
-  lv_obj_set_style_text_font(statusLabel, &lv_font_montserrat_16, 0);
-  lv_obj_align(statusLabel, LV_ALIGN_TOP_LEFT, 10, 8);
+  lv_obj_set_style_text_font(statusLabel, &lv_font_montserrat_20, 0);
+  lv_obj_align(statusLabel, LV_ALIGN_TOP_LEFT, 12, 12);
   lv_label_set_text(statusLabel, "Starting...");
 
   wifiLabel = lv_label_create(scr);
-  lv_obj_align(wifiLabel, LV_ALIGN_TOP_RIGHT, -10, 9);
+  lv_obj_align(wifiLabel, LV_ALIGN_TOP_RIGHT, -12, 14);
   lv_label_set_text(wifiLabel, LV_SYMBOL_WIFI);
   lv_obj_set_style_text_color(wifiLabel, COL_MUTED, 0);
 
   // Job name
   taskLabel = lv_label_create(scr);
-  lv_obj_set_width(taskLabel, 300);
+  lv_obj_set_width(taskLabel, 456);
   lv_label_set_long_mode(taskLabel, LV_LABEL_LONG_SCROLL_CIRCULAR);
   lv_obj_set_style_text_color(taskLabel, COL_MUTED, 0);
-  lv_obj_align(taskLabel, LV_ALIGN_TOP_LEFT, 10, 34);
+  lv_obj_align(taskLabel, LV_ALIGN_TOP_LEFT, 12, 46);
   lv_label_set_text(taskLabel, "");
 
   // Progress: big percent, layer + time to the right
   percentLabel = lv_label_create(scr);
   lv_obj_set_style_text_font(percentLabel, &lv_font_montserrat_32, 0);
-  lv_obj_align(percentLabel, LV_ALIGN_TOP_LEFT, 10, 58);
+  lv_obj_align(percentLabel, LV_ALIGN_TOP_LEFT, 12, 76);
   lv_label_set_text(percentLabel, "--%");
 
   layerLabel = lv_label_create(scr);
   lv_obj_set_style_text_color(layerLabel, COL_MUTED, 0);
-  lv_obj_align(layerLabel, LV_ALIGN_TOP_RIGHT, -10, 58);
+  lv_obj_align(layerLabel, LV_ALIGN_TOP_RIGHT, -12, 76);
   lv_label_set_text(layerLabel, "");
 
   timeLabel = lv_label_create(scr);
   lv_obj_set_style_text_color(timeLabel, COL_MUTED, 0);
-  lv_obj_align(timeLabel, LV_ALIGN_TOP_RIGHT, -10, 76);
+  lv_obj_align(timeLabel, LV_ALIGN_TOP_RIGHT, -12, 98);
   lv_label_set_text(timeLabel, "");
 
   progressBar = lv_bar_create(scr);
-  lv_obj_set_size(progressBar, 300, 12);
-  lv_obj_align(progressBar, LV_ALIGN_TOP_LEFT, 10, 100);
+  lv_obj_set_size(progressBar, 456, 16);
+  lv_obj_align(progressBar, LV_ALIGN_TOP_LEFT, 12, 144);
   lv_obj_set_style_bg_color(progressBar, COL_CARD, LV_PART_MAIN);
   lv_obj_set_style_bg_color(progressBar, COL_ACCENT, LV_PART_INDICATOR);
   lv_bar_set_value(progressBar, 0, LV_ANIM_OFF);
 
   // Temps + speed
   nozzleLabel = lv_label_create(scr);
-  lv_obj_set_style_text_font(nozzleLabel, &lv_font_montserrat_16, 0);
-  lv_obj_align(nozzleLabel, LV_ALIGN_TOP_LEFT, 10, 128);
+  lv_obj_set_style_text_font(nozzleLabel, &lv_font_montserrat_20, 0);
+  lv_obj_align(nozzleLabel, LV_ALIGN_TOP_LEFT, 12, 186);
   lv_label_set_text(nozzleLabel, "Noz --/--");
 
   bedLabel = lv_label_create(scr);
-  lv_obj_set_style_text_font(bedLabel, &lv_font_montserrat_16, 0);
-  lv_obj_align(bedLabel, LV_ALIGN_TOP_MID, 10, 128);
+  lv_obj_set_style_text_font(bedLabel, &lv_font_montserrat_20, 0);
+  lv_obj_align(bedLabel, LV_ALIGN_TOP_MID, 10, 186);
   lv_label_set_text(bedLabel, "Bed --/--");
 
   speedLabel = lv_label_create(scr);
   lv_obj_set_style_text_color(speedLabel, COL_MUTED, 0);
-  lv_obj_align(speedLabel, LV_ALIGN_TOP_RIGHT, -10, 130);
+  lv_obj_align(speedLabel, LV_ALIGN_TOP_RIGHT, -12, 189);
   lv_label_set_text(speedLabel, "");
 
   // Button row
   lv_obj_t* row = lv_obj_create(scr);
   lv_obj_remove_style_all(row);
-  lv_obj_set_size(row, 320, 56);
-  lv_obj_align(row, LV_ALIGN_BOTTOM_MID, 0, -8);
+  lv_obj_set_size(row, 480, 72);
+  lv_obj_align(row, LV_ALIGN_BOTTOM_MID, 0, -12);
   lv_obj_set_flex_flow(row, LV_FLEX_FLOW_ROW);
   lv_obj_set_flex_align(row, LV_FLEX_ALIGN_SPACE_EVENLY, LV_FLEX_ALIGN_CENTER, LV_FLEX_ALIGN_CENTER);
   lv_obj_clear_flag(row, LV_OBJ_FLAG_SCROLLABLE);
