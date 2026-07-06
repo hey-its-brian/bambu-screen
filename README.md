@@ -1,8 +1,8 @@
 # bambu-screen
 
 Touchscreen status display and basic controller for a Bambu Lab P1S in LAN
-Developer Mode. Runs on the ESP32-3248S035 (Sunton 3.5" CYD variant): 480x320
-ST7796 display with XPT2046 resistive touch, classic ESP32-WROOM-32.
+Developer Mode. Runs on a Sunton 4.0 inch CYD variant: 480x320 ST7796
+display with XPT2046 resistive touch, classic ESP32-WROOM-32E, USB-C.
 
 Talks directly to the printer's local MQTT broker over TLS on port 8883. No
 cloud and no Home Assistant required.
