@@ -1,13 +1,25 @@
 #include "display.h"
 #include "config.h"
+#include "touch.h"
 
 #include <Arduino.h>
 #include <SPI.h>
 #include <TFT_eSPI.h>
 #include <lvgl.h>
 
-static const int SCREEN_W = 480;
-static const int SCREEN_H = 320;
+#ifndef DISPLAY_ROTATION
+#define DISPLAY_ROTATION 1
+#endif
+
+// TFT_WIDTH/TFT_HEIGHT describe the panel in portrait; the odd rotations
+// (1 and 3) are landscape, so swap them to get the logical screen size.
+#if (DISPLAY_ROTATION & 1)
+static const int SCREEN_W = TFT_HEIGHT;
+static const int SCREEN_H = TFT_WIDTH;
+#else
+static const int SCREEN_W = TFT_WIDTH;
+static const int SCREEN_H = TFT_HEIGHT;
+#endif
 
 static TFT_eSPI tft;
 
@@ -25,12 +37,11 @@ static void flushCb(lv_disp_drv_t* disp, const lv_area_t* area, lv_color_t* pixe
   lv_disp_flush_ready(disp);
 }
 
-// XPT2046 on the shared display bus (TOUCH_CS), read via TFT_eSPI so the two
-// chips never fight over the bus. Calibration comes from calibrateTouch
-// (see the diag build).
+// Touch backend is selected at build time (see touch.h). Calibration comes
+// from the diag build's corner calibration.
 static void touchReadCb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
   uint16_t x = 0, y = 0;
-  if (tft.getTouch(&x, &y, TOUCH_Z_THRESHOLD)) {
+  if (touchGet(&x, &y, TOUCH_Z_THRESHOLD)) {
     data->point.x = constrain((int)x, 0, SCREEN_W - 1);
     data->point.y = constrain((int)y, 0, SCREEN_H - 1);
     data->state = LV_INDEV_STATE_PRESSED;
@@ -41,10 +52,12 @@ static void touchReadCb(lv_indev_drv_t* drv, lv_indev_data_t* data) {
 
 void displaySetup() {
   tft.init();
-  tft.setRotation(1);  // landscape, USB on the right
+  tft.setRotation(DISPLAY_ROTATION);
   tft.fillScreen(TFT_BLACK);
+  touchSetup(tft);
   uint16_t calData[5] = TOUCH_CAL_DATA;
-  tft.setTouch(calData);
+  touchSetCal(calData);
+  Serial.printf("[display] %dx%d, rotation %d\n", SCREEN_W, SCREEN_H, DISPLAY_ROTATION);
 
   lv_init();
   lv_color_t* buf1 = (lv_color_t*)malloc(DRAW_BUF_PIXELS * sizeof(lv_color_t));
