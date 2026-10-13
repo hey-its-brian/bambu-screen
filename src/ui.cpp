@@ -65,6 +65,22 @@ static lv_obj_t* lightBtnLabel;
 static lv_obj_t* speedBtn;
 static lv_obj_t* speedBtnLabel;
 
+// ---- incoming-job glitch screen ----
+static lv_obj_t* glitch;              // full-screen overlay, hidden when idle
+static lv_obj_t* glitchTitle[3];      // magenta ghost, cyan ghost, main
+static lv_obj_t* glitchJob;           // job name, typed out
+static lv_obj_t* glitchStatus;        // LOADING... line
+static lv_obj_t* glitchHex;           // scrolling hex noise
+static const int GLITCH_BARS = 7;
+static lv_obj_t* glitchBar[GLITCH_BARS];
+static lv_timer_t* glitchTimer;
+static uint32_t glitchStart;
+static uint32_t glitchTicks;
+static bool seenStandby;              // a non-job state was seen after connect
+
+static const uint32_t GLITCH_MIN_MS = 2200;    // keep it up at least this long
+static const uint32_t GLITCH_MAX_MS = 60000;   // never hide the controls longer
+
 static bool isState(const char* s) { return strcmp(printerState.gcodeState, s) == 0; }
 static bool isPrinting() { return isState("RUNNING") || isState("PREPARE") || isState("SLICING"); }
 
@@ -245,6 +261,119 @@ static lv_obj_t* makeButton(lv_obj_t* parent, const char* text, const lv_font_t*
   return btn;
 }
 
+static void glitchHide() {
+  if (!glitch || lv_obj_has_flag(glitch, LV_OBJ_FLAG_HIDDEN)) return;
+  lv_obj_add_flag(glitch, LV_OBJ_FLAG_HIDDEN);
+  if (glitchTimer) lv_timer_pause(glitchTimer);
+  printerState.dirty = true;
+}
+
+static void onGlitchTapped(lv_event_t*) { glitchHide(); }
+
+static void glitchTick(lv_timer_t*) {
+  glitchTicks++;
+  if (millis() - glitchStart >= GLITCH_MAX_MS) { glitchHide(); return; }
+  const lv_coord_t W = lv_obj_get_width(glitch);
+  const lv_coord_t H = lv_obj_get_height(glitch);
+  const lv_coord_t cx = W / 2;
+  const lv_coord_t titleY = H / 2 - 44;
+
+  // Ghost copies drift most of the time, snap together now and then
+  bool calm = (glitchTicks % 9) < 3;
+  lv_coord_t dx = calm ? 0 : (lv_coord_t)(rand() % 7) - 3;
+  lv_coord_t dy = calm ? 0 : (lv_coord_t)(rand() % 3) - 1;
+  lv_obj_align(glitchTitle[0], LV_ALIGN_TOP_MID, -dx - 2, titleY + dy);
+  lv_obj_align(glitchTitle[1], LV_ALIGN_TOP_MID,  dx + 2, titleY - dy);
+  lv_obj_align(glitchTitle[2], LV_ALIGN_TOP_MID, 0, titleY);
+  // occasional full flicker of the main title
+  lv_obj_set_style_opa(glitchTitle[2], (rand() % 11 == 0) ? LV_OPA_20 : LV_OPA_COVER, 0);
+
+  // Job name types itself out, then holds
+  const char* name = printerState.taskName[0] ? printerState.taskName : "untitled job";
+  size_t len = strlen(name);
+  size_t shown = glitchTicks * 2;
+  if (shown > len) shown = len;
+  char buf[72];
+  snprintf(buf, sizeof(buf), "%.*s%s", (int)shown, name, (shown < len && (glitchTicks & 1)) ? "_" : " ");
+  lv_label_set_text(glitchJob, buf);
+  lv_obj_align(glitchJob, LV_ALIGN_TOP_MID, 0, titleY + 34);
+
+  // LOADING with walking dots
+  static const char* dots[] = {"", ".", "..", "..."};
+  lv_label_set_text_fmt(glitchStatus, "LOADING%s", dots[(glitchTicks / 3) % 4]);
+  lv_obj_align(glitchStatus, LV_ALIGN_TOP_MID, 0, titleY + 66);
+
+  // Hex readout, fresh noise every few ticks
+  if (glitchTicks % 2 == 0) {
+    char hex[64];
+    snprintf(hex, sizeof(hex), "%04X %04X %04X %04X %04X %04X",
+             rand() & 0xFFFF, rand() & 0xFFFF, rand() & 0xFFFF,
+             rand() & 0xFFFF, rand() & 0xFFFF, rand() & 0xFFFF);
+    lv_label_set_text(glitchHex, hex);
+    lv_obj_align(glitchHex, LV_ALIGN_BOTTOM_MID, 0, -14);
+  }
+
+  // Noise bars: thin horizontal slices that jump around the screen
+  for (int i = 0; i < GLITCH_BARS; i++) {
+    lv_obj_t* b = glitchBar[i];
+    if (rand() % 3 == 0) {
+      lv_coord_t bw = 20 + rand() % (W / 2);
+      lv_coord_t bh = 1 + rand() % 4;
+      lv_obj_set_size(b, bw, bh);
+      lv_obj_set_pos(b, rand() % (W - bw), rand() % H);
+      int pick = rand() % 5;
+      lv_obj_set_style_bg_color(b, pick == 0 ? COL_ACCENT2 : pick == 1 ? COL_TEXT : COL_ACCENT, 0);
+      lv_obj_set_style_bg_opa(b, (rand() % 4 == 0) ? LV_OPA_TRANSP : LV_OPA_70, 0);
+    }
+  }
+  (void)cx;
+}
+
+static void glitchShow() {
+  glitchStart = millis();
+  glitchTicks = 0;
+  lv_obj_clear_flag(glitch, LV_OBJ_FLAG_HIDDEN);
+  lv_obj_move_foreground(glitch);
+  if (glitchTimer) lv_timer_resume(glitchTimer);
+  glitchTick(nullptr);
+}
+
+static void glitchSetup(lv_obj_t* scr, lv_coord_t W, lv_coord_t H) {
+  glitch = lv_obj_create(scr);
+  lv_obj_remove_style_all(glitch);
+  lv_obj_set_pos(glitch, 0, 0);
+  lv_obj_set_size(glitch, W, H);
+  lv_obj_set_style_bg_color(glitch, COL_BG, 0);
+  lv_obj_set_style_bg_opa(glitch, LV_OPA_COVER, 0);
+  lv_obj_clear_flag(glitch, LV_OBJ_FLAG_SCROLLABLE);
+  lv_obj_add_flag(glitch, LV_OBJ_FLAG_CLICKABLE);
+  lv_obj_add_event_cb(glitch, onGlitchTapped, LV_EVENT_CLICKED, nullptr);
+
+  for (int i = 0; i < GLITCH_BARS; i++) {
+    glitchBar[i] = lv_obj_create(glitch);
+    lv_obj_remove_style_all(glitchBar[i]);
+    lv_obj_set_style_bg_opa(glitchBar[i], LV_OPA_TRANSP, 0);
+    lv_obj_set_size(glitchBar[i], 10, 2);
+  }
+
+  static const lv_color_t ghost[3] = {COL_ACCENT2, COL_ACCENT, COL_TEXT};
+  for (int i = 0; i < 3; i++) {
+    glitchTitle[i] = makeLabel(glitch, &deck_orbitron_16, ghost[i], 0, 0, "INCOMING JOB");
+    lv_obj_set_style_text_letter_space(glitchTitle[i], 3, 0);
+    if (i < 2) lv_obj_set_style_opa(glitchTitle[i], LV_OPA_60, 0);
+  }
+  glitchJob = makeLabel(glitch, L->body, COL_TEXT, 0, 0, "");
+  lv_obj_set_width(glitchJob, W - 40);
+  lv_obj_set_style_text_align(glitchJob, LV_TEXT_ALIGN_CENTER, 0);
+  lv_label_set_long_mode(glitchJob, LV_LABEL_LONG_DOT);
+  glitchStatus = makeLabel(glitch, &deck_orbitron_16, COL_ACCENT, 0, 0, "LOADING");
+  glitchHex = makeLabel(glitch, L->small, COL_DIM, 0, 0, "");
+
+  glitchTimer = lv_timer_create(glitchTick, 70, nullptr);
+  lv_timer_pause(glitchTimer);
+  lv_obj_add_flag(glitch, LV_OBJ_FLAG_HIDDEN);
+}
+
 void uiSetup() {
   const lv_coord_t W = lv_disp_get_hor_res(nullptr);
   const lv_coord_t H = lv_disp_get_ver_res(nullptr);
@@ -369,6 +498,8 @@ void uiSetup() {
   speedBtn = makeButton(row, "STD", L->small, onSpeedClicked, COL_LINE, &speedBtnLabel);
   lv_obj_set_style_text_color(lightBtn, COL_TEXT, 0);
   lv_obj_set_style_text_color(speedBtn, COL_TEXT, 0);
+
+  glitchSetup(scr, W, H);
 }
 
 static void formatRemaining(char* buf, size_t n, int minutes) {
@@ -403,7 +534,34 @@ static const char* speedShort(int level) {
   }
 }
 
+// Show the glitch screen when a job starts from a standby state; take it
+// down once real layer data flows, on a tap, or after the hard timeout.
+static void glitchLogic() {
+  PrinterState& s = printerState;
+  bool connected = s.conn == BambuConn::CONNECTED;
+  bool printing = isPrinting();
+  bool visible = glitch && !lv_obj_has_flag(glitch, LV_OBJ_FLAG_HIDDEN);
+
+  if (connected && !printing && !isState("PAUSE")) seenStandby = true;
+
+  if (!visible) {
+    if (connected && printing && seenStandby) {
+      seenStandby = false;
+      glitchShow();
+    }
+    return;
+  }
+
+  uint32_t elapsed = millis() - glitchStart;
+  bool dataFlowing = isState("RUNNING") && (s.layer >= 1 || s.percent >= 1);
+  bool jobGone = !printing && !isState("PAUSE");
+  if (elapsed >= GLITCH_MAX_MS || jobGone || (dataFlowing && elapsed >= GLITCH_MIN_MS)) {
+    glitchHide();
+  }
+}
+
 void uiUpdate() {
+  if (printerState.dirty) glitchLogic();
   if (!printerState.dirty) return;
   printerState.dirty = false;
   PrinterState& s = printerState;
